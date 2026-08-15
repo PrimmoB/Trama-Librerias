@@ -60,6 +60,8 @@ export function Proveedores({
     direccion: "",
     porcentajeComision: 30,
     observaciones: "",
+    claveAcceso: "",
+    logo: "",
   };
   const [libreriaForm, setLibreriaForm] = useState(emptyLibreriaForm);
 
@@ -111,6 +113,8 @@ export function Proveedores({
       direccion: lib.direccion || "",
       porcentajeComision: lib.porcentajeComision,
       observaciones: lib.observaciones || "",
+      claveAcceso: lib.claveAcceso || `${(lib.alias || "libreria").toLowerCase().replace(/\s+/g, "")}123`,
+      logo: lib.logo || "",
     });
     setFormError("");
     setModalLibreriaOpen(true);
@@ -125,6 +129,8 @@ export function Proveedores({
       setFormError("El alias corto (para los filtros) es obligatorio.");
       return;
     }
+
+    const aliasNorm = libreriaForm.alias.trim().toLowerCase();
 
     if (editingLibreriaId !== null) {
       setLibrerias(prev =>
@@ -141,6 +147,8 @@ export function Proveedores({
                 direccion: libreriaForm.direccion.trim() || undefined,
                 porcentajeComision: Number(libreriaForm.porcentajeComision) || 0,
                 observaciones: libreriaForm.observaciones.trim() || undefined,
+                claveAcceso: libreriaForm.claveAcceso.trim() || item.claveAcceso || `${aliasNorm.replace(/\s+/g, "")}123`,
+                logo: libreriaForm.logo,
               }
             : item
         )
@@ -159,6 +167,8 @@ export function Proveedores({
         porcentajeComision: Number(libreriaForm.porcentajeComision) || 0,
         activo: true,
         observaciones: libreriaForm.observaciones.trim() || undefined,
+        claveAcceso: libreriaForm.claveAcceso.trim() || `${aliasNorm.replace(/\s+/g, "")}123`,
+        logo: libreriaForm.logo,
       };
       setLibrerias(prev => [...prev, newLibreria]);
     }
@@ -899,6 +909,20 @@ export function Proveedores({
               onChange={(e: any) => setLibreriaForm({ ...libreriaForm, direccion: e.target.value })}
               placeholder="Ej: Av. Brasil 123"
             />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Clave de Acceso Privada *"
+                value={libreriaForm.claveAcceso}
+                onChange={(e: any) => setLibreriaForm({ ...libreriaForm, claveAcceso: e.target.value })}
+                placeholder="ej: mardedudas123"
+              />
+              <Input
+                label="URL Logo de Librería (opcional)"
+                value={libreriaForm.logo}
+                onChange={(e: any) => setLibreriaForm({ ...libreriaForm, logo: e.target.value })}
+                placeholder="https://..."
+              />
+            </div>
             <div>
               <label className="text-xs font-semibold text-gray-700 block mb-1">Observaciones</label>
               <textarea

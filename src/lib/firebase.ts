@@ -100,6 +100,49 @@ const syncStatusState: FirebaseSyncStatus = {
 
 const syncStatusListeners = new Set<(status: FirebaseSyncStatus) => void>();
 
+export function clearSyncLogs() {
+  syncStatusState.logs = [];
+  const snapshot = getFirebaseSyncStatus();
+  syncStatusListeners.forEach(cb => cb(snapshot));
+}
+
+export function getDeviceDiagnosticInfo() {
+  if (typeof window === "undefined") {
+    return {
+      deviceId: "servidor",
+      browser: "Node.js",
+      online: true,
+      screen: "N/A",
+    };
+  }
+
+  let devId = localStorage.getItem("trama_device_id");
+  if (!devId) {
+    devId = `DEV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    try {
+      localStorage.setItem("trama_device_id", devId);
+    } catch {}
+  }
+
+  const ua = navigator.userAgent;
+  let browser = "Navegador Web";
+  if (ua.includes("Chrome") && !ua.includes("Edg")) browser = "Google Chrome";
+  else if (ua.includes("Safari") && !ua.includes("Chrome")) browser = "Apple Safari";
+  else if (ua.includes("Firefox")) browser = "Mozilla Firefox";
+  else if (ua.includes("Edg")) browser = "Microsoft Edge";
+
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+
+  return {
+    deviceId: devId,
+    browser: `${browser} (${isMobile ? "Móvil / Tablet" : "Escritorio / PC"})`,
+    online: navigator.onLine,
+    screen: `${window.innerWidth}x${window.innerHeight}px`,
+    projectId: firebaseConfig.projectId,
+    appId: firebaseConfig.appId,
+  };
+}
+
 export function subscribeFirebaseSyncStatus(callback: (status: FirebaseSyncStatus) => void): () => void {
   syncStatusListeners.add(callback);
   callback(getFirebaseSyncStatus());
@@ -169,8 +212,8 @@ try {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     const dbId =
       import.meta.env.VITE_FIREBASE_DATABASE_ID ||
-      defaultFirebaseConfig.firestoreDatabaseId ||
-      (defaultFirebaseConfig as any).databaseId;
+      (defaultFirebaseConfig as any)?.firestoreDatabaseId ||
+      (defaultFirebaseConfig as any)?.databaseId;
 
     if (dbId) {
       try {

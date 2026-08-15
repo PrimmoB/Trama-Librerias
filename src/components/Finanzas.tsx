@@ -40,6 +40,7 @@ import {
   FileSpreadsheet
 } from "lucide-react";
 import { Venta, Book, Proveedor, Movimiento, Gasto, CategoriaGasto, OtroIngreso, CategoriaOtroIngreso, LibreriaEntry, TramaInfo } from "../types";
+import { DEFAULT_LIBRERIAS } from "../data/initialData";
 import { fmt, exportCSV, catEmoji, generarCodigoInterno } from "../utils/helpers";
 import { StatCard, Badge, Btn, Input, Select, Modal, StockBadge, PortadaPicker, CategoriaMultiSelect } from "./ui";
 import { ImportExcelModal } from "./ImportExcelModal";
@@ -475,32 +476,71 @@ export function Finanzas({
 
   const totalUtilidadTramaPeriodo = statsLibreriasPeriodo.reduce((s, l) => s + l.utilidadTrama, 0);
 
-  // CÁLCULOS DEDICADOS PARA PÁGINAS PRIVADAS DE LIBRERÍAS
-  const libreriaActualObj = (librerias || []).find(
-    l => (l.nombre || "").toLowerCase().includes((libreriaPrivadaActiva || "").toLowerCase()) ||
-         (l.alias || "").toLowerCase().includes((libreriaPrivadaActiva || "").toLowerCase())
-  ) || (libreriaPrivadaActiva === "Trama" ? {
-    id: 100,
-    nombre: "Trama Coordinación Central & Red Editorial",
-    alias: "Trama",
-    contacto: "Plataforma & Dirección General",
-    email: "contacto@tramalibros.cl",
-    telefono: "+56 9 9999 9999",
-    ciudad: "Santiago, Chile",
-    porcentajeComision: 10,
-    activo: true,
-    claveAcceso: "trama123"
-  } : null);
+  // HELPER PARA BÚSQUEDA ESTRICTA E INDEPENDIENTE DE LIBRERÍAS (SIN CRUCES DE DATOS)
+  const findLibreriaStrict = (list: LibreriaEntry[] | undefined, target: string | null | undefined): LibreriaEntry | null => {
+    if (!target) return null;
+    const arr = list && list.length > 0 ? list : DEFAULT_LIBRERIAS;
+    const tNorm = target.trim().toLowerCase();
+
+    // 1. Coincidencia exacta por alias
+    const matchAlias = arr.find(l => (l.alias || "").trim().toLowerCase() === tNorm);
+    if (matchAlias) return matchAlias;
+
+    // 2. Coincidencia exacta por nombre
+    const matchNombre = arr.find(l => (l.nombre || "").trim().toLowerCase() === tNorm);
+    if (matchNombre) return matchNombre;
+
+    // 3. Coincidencia sin prefijo "Librería "
+    const tClean = tNorm.replace(/^librer[ií]a\s+/, "");
+    const matchClean = arr.find(l => {
+      const aClean = (l.alias || "").trim().toLowerCase().replace(/^librer[ií]a\s+/, "");
+      return aClean === tClean;
+    });
+    if (matchClean) return matchClean;
+
+    return null;
+  };
+
+  // CÁLCULOS DEDICADOS PARA PÁGINAS PRIVADAS DE LIBRERÍAS (AISLAMIENTO TOTAL DE DATOS Y CLAVES)
+  const libreriaActualObj = useMemo(() => {
+    if (!libreriaPrivadaActiva) return null;
+    const found = findLibreriaStrict(librerias, libreriaPrivadaActiva);
+    if (found) return found;
+
+    // Fallback garantizado desde DEFAULT_LIBRERIAS si aún no existe en el estado
+    const def = DEFAULT_LIBRERIAS.find(d => (d.alias || "").toLowerCase() === libreriaPrivadaActiva.toLowerCase());
+    if (def) return def;
+
+    return {
+      id: Date.now(),
+      nombre: `Librería ${libreriaPrivadaActiva}`,
+      alias: libreriaPrivadaActiva,
+      contacto: "Administración",
+      email: `contacto@${libreriaPrivadaActiva.toLowerCase().replace(/\s+/g, "")}.cl`,
+      telefono: "+56 9 9999 9999",
+      ciudad: "Chile",
+      porcentajeComision: libreriaPrivadaActiva.toLowerCase() === "trama" ? 10 : 30,
+      activo: true,
+      claveAcceso: `${libreriaPrivadaActiva.toLowerCase().replace(/\s+/g, "")}123`,
+      logo: "",
+    };
+  }, [librerias, libreriaPrivadaActiva]);
+
+  // Cierra modo edición al cambiar de librería privada para evitar retención de datos en memoria
+  useEffect(() => {
+    setEditandoBannerLibreria(false);
+  }, [libreriaPrivadaActiva]);
 
   const iniciarEdicionBanner = () => {
+    if (!libreriaActualObj) return;
     setFormBannerLibreria({
-      nombre: libreriaActualObj?.nombre || `Librería ${libreriaPrivadaActiva}`,
-      contacto: libreriaActualObj?.contacto || "Administración",
-      telefono: libreriaActualObj?.telefono || "+56 9 9999 9999",
-      email: libreriaActualObj?.email || `contacto@${(libreriaPrivadaActiva || "libreria").toLowerCase().replace(/\s+/g, "")}.cl`,
-      ciudad: libreriaActualObj?.ciudad || "Santiago, Chile",
-      claveAcceso: libreriaActualObj?.claveAcceso || "1234",
-      logo: libreriaActualObj?.logo || "",
+      nombre: libreriaActualObj.nombre || `Librería ${libreriaPrivadaActiva}`,
+      contacto: libreriaActualObj.contacto || "Administración",
+      telefono: libreriaActualObj.telefono || "+56 9 9999 9999",
+      email: libreriaActualObj.email || "",
+      ciudad: libreriaActualObj.ciudad || "",
+      claveAcceso: libreriaActualObj.claveAcceso || `${(libreriaActualObj.alias || "libreria").toLowerCase().replace(/\s+/g, "")}123`,
+      logo: libreriaActualObj.logo || "",
     });
     setEditandoBannerLibreria(true);
   };
@@ -508,40 +548,42 @@ export function Finanzas({
   const guardarEdicionBanner = () => {
     if (!libreriaPrivadaActiva || !setLibrerias) return;
 
+    const currentAliasNorm = libreriaPrivadaActiva.trim().toLowerCase();
+
     setLibrerias(prev => {
-      const list = prev || [];
-      const idx = list.findIndex(
-        l => (l.alias || "").toLowerCase() === (libreriaPrivadaActiva || "").toLowerCase() ||
-             (l.nombre || "").toLowerCase().includes((libreriaPrivadaActiva || "").toLowerCase())
-      );
+      const list = prev && prev.length > 0 ? [...prev] : [...DEFAULT_LIBRERIAS];
+      const idx = list.findIndex(l => (l.alias || "").trim().toLowerCase() === currentAliasNorm);
+
       if (idx >= 0) {
+        // ACTUALIZA EXCLUSIVAMENTE LA LIBRERÍA SELECCIONADA POR SU ALIAS SIN AFECTAR A OTRAS
         const copy = [...list];
         copy[idx] = {
           ...copy[idx],
-          nombre: formBannerLibreria.nombre,
-          contacto: formBannerLibreria.contacto,
-          telefono: formBannerLibreria.telefono,
-          email: formBannerLibreria.email,
-          ciudad: formBannerLibreria.ciudad,
-          claveAcceso: formBannerLibreria.claveAcceso,
+          nombre: formBannerLibreria.nombre.trim() || copy[idx].nombre,
+          contacto: formBannerLibreria.contacto.trim(),
+          telefono: formBannerLibreria.telefono.trim(),
+          email: formBannerLibreria.email.trim(),
+          ciudad: formBannerLibreria.ciudad.trim(),
+          claveAcceso: formBannerLibreria.claveAcceso.trim() || copy[idx].claveAcceso || `${currentAliasNorm.replace(/\s+/g, "")}123`,
           logo: formBannerLibreria.logo,
         };
         return copy;
       } else {
+        // CREA UNA ENTRADA INDEPENDIENTE PARA ESTA LIBRERÍA
         const newEntry: LibreriaEntry = {
-          id: Date.now(),
-          nombre: formBannerLibreria.nombre,
+          id: Math.max(0, ...list.map(l => l.id || 0)) + 1,
+          nombre: formBannerLibreria.nombre.trim() || `Librería ${libreriaPrivadaActiva}`,
           alias: libreriaPrivadaActiva,
-          contacto: formBannerLibreria.contacto,
-          email: formBannerLibreria.email,
-          telefono: formBannerLibreria.telefono,
-          ciudad: formBannerLibreria.ciudad,
-          porcentajeComision: libreriaPrivadaActiva === "Trama" ? 10 : 30,
+          contacto: formBannerLibreria.contacto.trim(),
+          email: formBannerLibreria.email.trim(),
+          telefono: formBannerLibreria.telefono.trim(),
+          ciudad: formBannerLibreria.ciudad.trim(),
+          porcentajeComision: currentAliasNorm === "trama" ? 10 : 30,
           activo: true,
-          claveAcceso: formBannerLibreria.claveAcceso,
+          claveAcceso: formBannerLibreria.claveAcceso.trim() || `${currentAliasNorm.replace(/\s+/g, "")}123`,
           logo: formBannerLibreria.logo,
         };
-        return [newEntry, ...list];
+        return [...list, newEntry];
       }
     });
 
@@ -958,12 +1000,11 @@ export function Finanzas({
   }, [pagadas, books, libreriaPrivadaActiva, libreriaActualObj]);
 
   const abrirModalAccesoPrivado = (stName: string) => {
-    const found = (librerias || []).find(
-      l => (l.nombre || "").toLowerCase().includes((stName || "").toLowerCase()) ||
-           (l.alias || "").toLowerCase().includes((stName || "").toLowerCase())
-    );
-    setLibreriaModal(found || {
-      id: stName === "Trama" ? 100 : 99,
+    const found = findLibreriaStrict(librerias, stName);
+    const def = DEFAULT_LIBRERIAS.find(d => (d.alias || "").toLowerCase() === (stName || "").toLowerCase());
+
+    setLibreriaModal(found || def || {
+      id: stName === "Trama" ? 1 : 99,
       nombre: stName === "Trama" ? "Trama Coordinación Central & Red Editorial" : `Librería ${stName}`,
       alias: stName,
       contacto: stName === "Trama" ? "Plataforma Trama" : "Representante",
@@ -972,7 +1013,8 @@ export function Finanzas({
       ciudad: "Chile",
       porcentajeComision: stName === "Trama" ? 10 : 30,
       activo: true,
-      claveAcceso: `${stName.toLowerCase().replace(/\s+/g, "")}123`
+      claveAcceso: `${stName.toLowerCase().replace(/\s+/g, "")}123`,
+      logo: "",
     });
     setClaveInputModal("");
     setErrorClaveModal("");
@@ -2624,10 +2666,7 @@ export function Finanzas({
                         "Mar de Dudas": "bg-amber-500",
                         "Trama": "bg-indigo-600",
                       };
-                      const libObj = (librerias || []).find(
-                        entry => (entry.alias || "").toLowerCase() === (l.nombre || "").toLowerCase() ||
-                                 (entry.nombre || "").toLowerCase().includes((l.nombre || "").toLowerCase())
-                      );
+                      const libObj = findLibreriaStrict(librerias, l.nombre);
 
                       return (
                         <div key={l.nombre} className="flex flex-col items-center justify-end space-y-1 text-center">
@@ -2679,7 +2718,7 @@ export function Finanzas({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             {(() => {
-                              const libLogo = (librerias || []).find(l => (l.alias || "").toLowerCase() === (st.nombre || "").toLowerCase() || (l.nombre || "").toLowerCase().includes((st.nombre || "").toLowerCase()))?.logo;
+                              const libLogo = findLibreriaStrict(librerias, st.nombre)?.logo;
                               return libLogo ? (
                                 <img
                                   src={libLogo}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ShoppingBag, DollarSign, Users, LogOut, Menu, X, Building2, AlertTriangle, Calculator, Tag, BookOpen, ChevronDown, PieChart, Receipt, Coins, Truck, History, Download, Moon, Sun, Lock, Unlock, ShieldCheck, Zap, MapPin, Phone } from "lucide-react";
 import { RoleType, Book, Venta, Proveedor, Acceso, Movimiento, Gasto, OtroIngreso, TramaInfo, LibreriaEntry, AperturaCaja, CierreCaja, LiquidacionConsignacion, AuditLog } from "./types";
-import { BOOKS_INIT, PROVEEDORES_INIT, VENTAS_INIT, ACCESOS_INIT, MOVIMIENTOS_INIT, GASTOS_INIT, OTROS_INGRESOS_INIT, TRAMA_INFO_INIT, LIBRERIAS_INIT } from "./data/initialData";
+import { BOOKS_INIT, PROVEEDORES_INIT, VENTAS_INIT, ACCESOS_INIT, MOVIMIENTOS_INIT, GASTOS_INIT, OTROS_INGRESOS_INIT, TRAMA_INFO_INIT, LIBRERIAS_INIT, normalizeLibreriasList } from "./data/initialData";
 import { useLocalStorage, getFechaHoraChile } from "./utils/helpers";
 import { POS } from "./components/POS";
 import { Finanzas } from "./components/Finanzas";
@@ -21,7 +21,7 @@ export default function App() {
   const [page, setPage] = useState<string>("pos");
   const [isPublicCatalogView, setIsPublicCatalogView] = useState<boolean>(false);
   const [finanzasTab, setFinanzasTab] = useState<"resumen" | "gastos" | "otrosIngresos" | "librerias" | "cierre" | "proveedores" | "movimientos">("resumen");
-  const [accesosTab, setAccesosTab] = useState<"personal" | "datosTrama" | "respaldos">("personal");
+  const [accesosTab, setAccesosTab] = useState<"personal" | "datosTrama" | "respaldos" | "sync">("personal");
   const [libreriaPrivadaActiva, setLibreriaPrivadaActiva] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [posSubModal, setPosSubModal] = useState<"caja" | "etiquetas" | "catalogo" | "liquidaciones" | null>(null);
@@ -69,6 +69,17 @@ export default function App() {
   const [librerias, setLibrerias] = useLocalStorage<LibreriaEntry[]>("trama_librerias_data", LIBRERIAS_INIT);
   const [accesos, setAccesos] = useLocalStorage<Acceso[]>("trama_accesos", ACCESOS_INIT);
 
+  // Sincronización y validación de integridad independiente de librerías
+  useEffect(() => {
+    setLibrerias(prev => {
+      const normalized = normalizeLibreriasList(prev);
+      if (JSON.stringify(normalized) !== JSON.stringify(prev)) {
+        return normalized;
+      }
+      return prev;
+    });
+  }, []);
+
   // Sincronización de accesos
   useEffect(() => {
     if (accesos.some(a => a.nombre.toLowerCase().includes("jorge"))) {
@@ -104,7 +115,7 @@ export default function App() {
     const unsubBooks = syncCollection<Book>("books", (data) => setBooks(data), BOOKS_INIT);
     const unsubVentas = syncCollection<Venta>("ventas", (data) => setVentas(data), VENTAS_INIT);
     const unsubProveedores = syncCollection<Proveedor>("proveedores", (data) => setProveedores(data), PROVEEDORES_INIT);
-    const unsubLibrerias = syncCollection<LibreriaEntry>("librerias", (data) => setLibrerias(data), LIBRERIAS_INIT);
+    const unsubLibrerias = syncCollection<LibreriaEntry>("librerias", (data) => setLibrerias(normalizeLibreriasList(data)), LIBRERIAS_INIT);
     const unsubAccesos = syncCollection<Acceso>("accesos", (data) => setAccesos(data), ACCESOS_INIT);
     const unsubMovimientos = syncCollection<Movimiento>("movimientos", (data) => setMovimientos(data), MOVIMIENTOS_INIT);
     const unsubGastos = syncCollection<Gasto>("gastos", (data) => setGastos(data), GASTOS_INIT);
@@ -499,6 +510,7 @@ export default function App() {
                     {accesosTab === "personal" && "👤 Personal y Cuentas"}
                     {accesosTab === "datosTrama" && "🏢 Datos de Trama & Ubicación"}
                     {accesosTab === "respaldos" && "💾 Respaldos y Seguridad"}
+                    {accesosTab === "sync" && "⚡ Diagnóstico Nube & Firestore"}
                   </span>
                 )}
               </h2>

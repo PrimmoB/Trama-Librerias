@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ArrowRight, AlertCircle, Lock, ShieldCheck, BookOpen, ShoppingCart, ExternalLink, Sparkles, Building2, Key } from "lucide-react";
 import { Acceso, RoleType, LibreriaEntry } from "../types";
+import { DEFAULT_LIBRERIAS } from "../data/initialData";
 import { Input, Modal, Btn } from "./ui";
 import { Logo } from "./Logo";
 
@@ -83,11 +84,17 @@ export function Login({ accesos, librerias = [], onLogin, onLoginLibreria, onRes
       return;
     }
 
-    // 2. Buscar en librerías aliadas
+    // 2. Buscar en librerías aliadas de forma estricta e independiente
     const matchLibreria = librerias.find(
-      l => l.email.toLowerCase() === emailTrim ||
-           l.nombre.toLowerCase().includes(emailTrim) ||
-           l.alias.toLowerCase() === emailTrim
+      l => (l.email || "").toLowerCase().trim() === emailTrim ||
+           (l.alias || "").toLowerCase().trim() === emailTrim ||
+           (l.nombre || "").toLowerCase().trim() === emailTrim ||
+           (l.nombre || "").toLowerCase().trim().replace(/^librer[ií]a\s+/, "") === emailTrim
+    ) || DEFAULT_LIBRERIAS.find(
+      d => (d.email || "").toLowerCase().trim() === emailTrim ||
+           (d.alias || "").toLowerCase().trim() === emailTrim ||
+           (d.nombre || "").toLowerCase().trim() === emailTrim ||
+           (d.nombre || "").toLowerCase().trim().replace(/^librer[ií]a\s+/, "") === emailTrim
     );
 
     if (matchLibreria) {
@@ -136,8 +143,17 @@ export function Login({ accesos, librerias = [], onLogin, onLoginLibreria, onRes
   };
 
   const handleConfirmDirectLibPass = (alias: string) => {
-    const found = librerias.find(l => l.alias.toLowerCase() === alias.toLowerCase() || l.nombre.toLowerCase().includes(alias.toLowerCase()));
-    const expectedClave = found?.claveAcceso || `${alias.toLowerCase().replace(/\s+/g, "")}123`;
+    const aliasNorm = (alias || "").trim().toLowerCase();
+    const found = librerias.find(l => 
+      (l.alias || "").trim().toLowerCase() === aliasNorm ||
+      (l.nombre || "").trim().toLowerCase() === aliasNorm ||
+      (l.nombre || "").trim().toLowerCase().replace(/^librer[ií]a\s+/, "") === aliasNorm
+    ) || DEFAULT_LIBRERIAS.find(d => 
+      (d.alias || "").trim().toLowerCase() === aliasNorm ||
+      (d.nombre || "").trim().toLowerCase() === aliasNorm ||
+      (d.nombre || "").trim().toLowerCase().replace(/^librer[ií]a\s+/, "") === aliasNorm
+    );
+    const expectedClave = found?.claveAcceso || `${aliasNorm.replace(/\s+/g, "")}123`;
     const inputClean = libPassInput.trim();
 
     if (
@@ -284,7 +300,6 @@ export function Login({ accesos, librerias = [], onLogin, onLoginLibreria, onRes
             type="text"
             value={email}
             onChange={(e: any) => setEmail(e.target.value)}
-            placeholder="admin@tramalibros.cl o Mar de Dudas"
             disabled={lockoutTimer > 0}
           />
 
