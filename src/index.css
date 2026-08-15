@@ -1,0 +1,408 @@
+@import "tailwindcss";
+
+/* TRANSICIONES Y PALETA DE COLORES (MENÚ Y ACCESO EN BLANCO, TODO LO DEMÁS EN AMARILLO AHUESADO #f8f5eb) */
+html, body {
+  background-color: #f8f5eb;
+  color: #1c1917;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+html.dark, html.dark body {
+  background-color: #0b1120 !important;
+  color: #f8fafc !important;
+  color-scheme: dark;
+}
+
+.dark main {
+  background-color: #070a12 !important;
+}
+
+/* Custom Scrollbar para Modo Oscuro */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0b1120;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #26334d;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3b4d6e;
+}
+
+/* Modales, Tarjetas y Contenedores */
+.dark .bg-white {
+  background-color: #151e32 !important;
+  color: #f8fafc !important;
+  border-color: #26334d;
+}
+
+.dark .bg-gray-50, 
+.dark .bg-slate-50,
+.dark .bg-gray-50\/50, 
+.dark .bg-slate-50\/50,
+.dark .bg-gray-50\/60, 
+.dark .bg-slate-50\/60,
+.dark .bg-gray-50\/80,
+.dark .bg-slate-50\/80,
+.dark .bg-slate-50\/90 {
+  background-color: #0d1527 !important;
+}
+
+.dark .bg-gray-100, 
+.dark .bg-slate-100,
+.dark .bg-gray-100\/80,
+.dark .bg-slate-100\/80,
+.dark .bg-gray-100\/50,
+.dark .bg-slate-100\/50 {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.dark .bg-gray-200,
+.dark .bg-slate-200 {
+  background-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+.dark .bg-gray-800,
+.dark .bg-slate-800 {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+}
+
+/* Sidebar y Header */
+.dark aside {
+  background-color: #0b1120 !important;
+  border-color: #1f293d !important;
+}
+
+.dark header {
+  background-color: #111827 !important;
+  border-color: #1f293d !important;
+}
+
+/* Alto Contenido y Lectura de Textos */
+.dark .text-gray-900, 
+.dark .text-gray-950, 
+.dark .text-slate-900,
+.dark .text-slate-950,
+.dark .text-black {
+  color: #ffffff !important;
+}
+
+.dark .text-gray-800, 
+.dark .text-gray-700,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-gray-600, 
+.dark .text-gray-500,
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-gray-400,
+.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.dark .text-gray-300,
+.dark .text-slate-300 {
+  color: #8899a6 !important;
+}
+
+/* Bordes y Líneas Divisoras en Modo Oscuro */
+.dark .border-gray-100, 
+.dark .border-slate-100,
+.dark .border-gray-200, 
+.dark .border-slate-200,
+.dark .border-gray-200\/80, 
+.dark .border-slate-200\/80,
+.dark .border-slate-200\/90,
+.dark .border-gray-300,
+.dark .border-slate-300 {
+  border-color: #26334d !important;
+}
+
+.dark .border-gray-400,
+.dark .border-slate-400 {
+  border-color: #3b4d6e !important;
+}
+
+/* Estados Hover y Selección */
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-50:hover {
+  background-color: #1e293b !important;
+}
+
+.dark .hover\:bg-gray-100:hover, 
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-gray-100\/80:hover,
+.dark .hover\:bg-slate-100\/80:hover {
+  background-color: #2a374e !important;
+}
+
+.dark .hover\:bg-purple-50\/40:hover,
+.dark .hover\:bg-purple-50\/80:hover,
+.dark .hover\:bg-purple-50:hover {
+  background-color: #31104b !important;
+}
+
+/* Tablas, Formularios e Inputs */
+.dark table thead tr, 
+.dark table th {
+  background-color: #0d1527 !important;
+  color: #f1f5f9 !important;
+  border-color: #26334d !important;
+}
+
+.dark table td {
+  border-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+.dark table tbody tr:hover {
+  background-color: #1c273e !important;
+}
+
+.dark input, 
+.dark select, 
+.dark textarea {
+  background-color: #0b1329 !important;
+  color: #f8fafc !important;
+  border-color: #3b4d6e !important;
+}
+
+.dark select option {
+  background-color: #151e32 !important;
+  color: #f8fafc !important;
+}
+
+.dark input::placeholder, 
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+.dark input:focus, 
+.dark select:focus, 
+.dark textarea:focus {
+  border-color: #c084fc !important;
+  background-color: #0b1329 !important;
+  box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.25) !important;
+}
+
+/* Badges y Tarjetas por Color con Excelente Contraste */
+/* PÚRPURA */
+.dark .bg-purple-50,
+.dark .bg-purple-50\/70,
+.dark .bg-purple-50\/80 {
+  background-color: #2c124d !important;
+  color: #f3e8ff !important;
+  border-color: #6b21a8 !important;
+}
+
+.dark .bg-purple-100,
+.dark .bg-purple-100\/80 {
+  background-color: #4c1d95 !important;
+  color: #f3e8ff !important;
+}
+
+.dark .text-purple-700, 
+.dark .text-purple-800, 
+.dark .text-purple-900, 
+.dark .text-purple-950 {
+  color: #e9d5ff !important;
+}
+
+.dark .border-purple-100,
+.dark .border-purple-200,
+.dark .border-purple-300 {
+  border-color: #6b21a8 !important;
+}
+
+/* ESMERALDA */
+.dark .bg-emerald-50,
+.dark .bg-emerald-50\/70,
+.dark .bg-emerald-50\/80 {
+  background-color: #033323 !important;
+  color: #ecfdf5 !important;
+  border-color: #047857 !important;
+}
+
+.dark .bg-emerald-100,
+.dark .bg-emerald-100\/80 {
+  background-color: #064e3b !important;
+  color: #ecfdf5 !important;
+}
+
+.dark .text-emerald-700,
+.dark .text-emerald-800, 
+.dark .text-emerald-900,
+.dark .text-emerald-950 {
+  color: #a7f3d0 !important;
+}
+
+.dark .border-emerald-100,
+.dark .border-emerald-200,
+.dark .border-emerald-300 {
+  border-color: #047857 !important;
+}
+
+/* ÁMBAR / DORADO */
+.dark .bg-amber-50,
+.dark .bg-amber-50\/70,
+.dark .bg-amber-50\/80 {
+  background-color: #451a03 !important;
+  color: #fef3c7 !important;
+  border-color: #92400e !important;
+}
+
+.dark .bg-amber-100,
+.dark .bg-amber-100\/80 {
+  background-color: #78350f !important;
+  color: #fef3c7 !important;
+}
+
+.dark .text-amber-700,
+.dark .text-amber-800, 
+.dark .text-amber-900,
+.dark .text-amber-950 {
+  color: #fde68a !important;
+}
+
+.dark .border-amber-100,
+.dark .border-amber-200,
+.dark .border-amber-300 {
+  border-color: #92400e !important;
+}
+
+/* ROJO */
+.dark .bg-red-50,
+.dark .bg-red-50\/70,
+.dark .bg-red-50\/80 {
+  background-color: #450a0a !important;
+  color: #fef2f2 !important;
+  border-color: #991b1b !important;
+}
+
+.dark .bg-red-100,
+.dark .bg-red-100\/80 {
+  background-color: #7f1d1d !important;
+  color: #fef2f2 !important;
+}
+
+.dark .text-red-700, 
+.dark .text-red-800,
+.dark .text-red-900,
+.dark .text-red-950 {
+  color: #fecaca !important;
+}
+
+.dark .border-red-100,
+.dark .border-red-200,
+.dark .border-red-300 {
+  border-color: #991b1b !important;
+}
+
+/* AZUL E INDIGO */
+.dark .bg-blue-50,
+.dark .bg-indigo-50,
+.dark .bg-blue-50\/80,
+.dark .bg-indigo-50\/80 {
+  background-color: #172554 !important;
+  color: #dbeafe !important;
+  border-color: #1d4ed8 !important;
+}
+
+.dark .bg-blue-100,
+.dark .bg-indigo-100,
+.dark .bg-blue-100\/80,
+.dark .bg-indigo-100\/80 {
+  background-color: #1e3a8a !important;
+  color: #dbeafe !important;
+}
+
+.dark .text-blue-700, 
+.dark .text-blue-800,
+.dark .text-blue-900,
+.dark .text-indigo-700,
+.dark .text-indigo-800,
+.dark .text-indigo-900 {
+  color: #bfdbfe !important;
+}
+
+.dark .border-blue-100,
+.dark .border-blue-200,
+.dark .border-indigo-100,
+.dark .border-indigo-200 {
+  border-color: #1d4ed8 !important;
+}
+
+/* Botones outline en modo oscuro */
+.dark button.border-gray-200, 
+.dark button.border-gray-300,
+.dark button.border-slate-200,
+.dark button.border-slate-300 {
+  border-color: #3b4d6e !important;
+  color: #f1f5f9 !important;
+  background-color: #151e32 !important;
+}
+
+.dark button.border-gray-200:hover, 
+.dark button.border-gray-300:hover,
+.dark button.border-slate-200:hover,
+.dark button.border-slate-300:hover {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+}
+
+/* Tooltip Recharts en Modo Oscuro */
+.dark .recharts-default-tooltip {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+}
+
+.dark .recharts-text {
+  fill: #cbd5e1 !important;
+}
+
+.dark .recharts-cartesian-grid line {
+  stroke: #1e293b !important;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-ticket, #printable-ticket * {
+    visibility: visible;
+  }
+  #printable-ticket {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 12px;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+}
+
+

@@ -1,0 +1,10 @@
+{
+  "name": "TramaLibros4",
+  "description": "Gestión Integral de Trama Librerías. ",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
