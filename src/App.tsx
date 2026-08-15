@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ShoppingBag, DollarSign, Users, LogOut, Menu, X, Building2, AlertTriangle, Calculator, Tag, BookOpen, ChevronDown, PieChart, Receipt, Coins, Truck, History, Download, Moon, Sun, Lock, Unlock, ShieldCheck, Zap, MapPin, Phone } from "lucide-react";
+import { ShoppingBag, DollarSign, Users, LogOut, Menu, X, Building2, AlertTriangle, Calculator, Tag, BookOpen, ChevronDown, PieChart, Receipt, Coins, Truck, History, Download, Moon, Sun, Lock, Unlock, ShieldCheck, Zap, MapPin, Phone, Cloud, RefreshCw, CheckCircle2 } from "lucide-react";
 import { RoleType, Book, Venta, Proveedor, Acceso, Movimiento, Gasto, OtroIngreso, TramaInfo, LibreriaEntry, AperturaCaja, CierreCaja, LiquidacionConsignacion, AuditLog } from "./types";
 import { BOOKS_INIT, PROVEEDORES_INIT, VENTAS_INIT, ACCESOS_INIT, MOVIMIENTOS_INIT, GASTOS_INIT, OTROS_INGRESOS_INIT, TRAMA_INFO_INIT, LIBRERIAS_INIT, normalizeLibreriasList } from "./data/initialData";
 import { useLocalStorage, getFechaHoraChile } from "./utils/helpers";
@@ -13,7 +13,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConsultaMesonModal } from "./components/ConsultaMesonModal";
 import { Logo } from "./components/Logo";
 import { Input } from "./components/ui";
-import { syncCollection, saveEntireCollection, syncInfoEmpresa, saveInfoEmpresa, syncAperturaActiva, saveAperturaActiva } from "./lib/firebase";
+import { syncCollection, saveEntireCollection, syncInfoEmpresa, saveInfoEmpresa, syncAperturaActiva, saveAperturaActiva, subscribeFirebaseSyncStatus, getFirebaseSyncStatus, forceSyncFromCloud, FirebaseSyncStatus } from "./lib/firebase";
 
 export default function App() {
   const [role, setRole] = useState<RoleType | null>(null);
@@ -27,6 +27,24 @@ export default function App() {
   const [posSubModal, setPosSubModal] = useState<"caja" | "etiquetas" | "catalogo" | "liquidaciones" | null>(null);
   const [consultaMesonOpen, setConsultaMesonOpen] = useState<boolean>(false);
   const [pendingCartBook, setPendingCartBook] = useState<Book | null>(null);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<FirebaseSyncStatus>(getFirebaseSyncStatus());
+  const [isForcingSync, setIsForcingSync] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsub = subscribeFirebaseSyncStatus((status) => {
+      setCloudSyncStatus(status);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleManualSyncNow = async () => {
+    setIsForcingSync(true);
+    try {
+      await forceSyncFromCloud();
+    } finally {
+      setTimeout(() => setIsForcingSync(false), 500);
+    }
+  };
 
   // Escuchador de teclado global F2 para Consulta de Mesón Rápidamente
   useEffect(() => {
@@ -554,6 +572,29 @@ export default function App() {
                 <span>{stockBajoCount} libros con stock crítico</span>
               </div>
             )}
+
+            {/* Botón e Indicador de Sincronización en Tiempo Real con Firebase Cloud */}
+            <button
+              onClick={handleManualSyncNow}
+              disabled={isForcingSync}
+              title={`Sincronización Cloud: ${cloudSyncStatus.status === "connected" ? "Conectado y sincronizado en tiempo real" : "Reintentar conexión"}. Haz clic para actualizar.`}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border shadow-2xs ${
+                cloudSyncStatus.status === "connected"
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                  : cloudSyncStatus.status === "syncing" || isForcingSync
+                  ? "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 animate-pulse"
+                  : "bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300"
+              }`}
+            >
+              <RefreshCw size={13} className={`${isForcingSync || cloudSyncStatus.status === "syncing" ? "animate-spin text-blue-600" : cloudSyncStatus.status === "connected" ? "text-emerald-600" : "text-amber-600"}`} />
+              <span className="hidden md:inline font-bold">
+                {isForcingSync || cloudSyncStatus.status === "syncing"
+                  ? "Sincronizando..."
+                  : cloudSyncStatus.status === "connected"
+                  ? "Nube Activa"
+                  : "Reconectar Nube"}
+              </span>
+            </button>
 
             {/* Botón de Modo Oscuro para iluminación tenue con alto contraste */}
             <button

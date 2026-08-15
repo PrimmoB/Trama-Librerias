@@ -186,12 +186,44 @@ const pendingDebounceTimers: Record<string, any> = {};
 // Callbacks registrados para sincronización forzada bajo demanda
 const registeredCollectionUpdaters: Record<string, (data: any[]) => void> = {};
 
+// Canal de comunicación en tiempo real inter-pestañas / inter-ventanas del mismo navegador
+let syncBroadcastChannel: BroadcastChannel | null = null;
+const localDeviceId = typeof window !== "undefined" ? (localStorage.getItem("trama_device_id") || "local") : "node";
+
+try {
+  if (typeof window !== "undefined" && typeof BroadcastChannel !== "undefined") {
+    syncBroadcastChannel = new BroadcastChannel("trama_realtime_sync_bus");
+    syncBroadcastChannel.onmessage = (event) => {
+      try {
+        const { collectionName, data, senderDeviceId } = event.data || {};
+        if (senderDeviceId === localDeviceId) return; // Evitar eco de la misma pestaña
+        if (collectionName && Array.isArray(data) && registeredCollectionUpdaters[collectionName]) {
+          const localKey = storageKeyMap[collectionName] || collectionName;
+          try {
+            localStorage.setItem(localKey, JSON.stringify(data));
+          } catch {}
+          lastDataSignatures[collectionName] = calculateFingerprint(data);
+          registeredCollectionUpdaters[collectionName](data);
+        }
+      } catch {}
+    };
+  }
+} catch {}
+
 /**
  * Sanitiza recursivamente objetos eliminando propiedades 'undefined' o funciones para Firestore
  */
 export function sanitizeForFirestore<T>(data: T): T {
   if (data === undefined || data === null) return data;
-  return JSON.parse(JSON.stringify(data));
+  try {
+    const jsonStr = JSON.stringify(data, (key, value) => {
+      if (value === undefined) return null;
+      return value;
+    });
+    return JSON.parse(jsonStr);
+  } catch {
+    return data;
+  }
 }
 
 /**
@@ -206,7 +238,7 @@ export function calculateFingerprint(data: any): string {
   }
 }
 
-// Inicialización segura de Firestore
+// Inicialización segura de Firestore con ignoreUndefinedProperties prioritario
 try {
   if (typeof window !== "undefined") {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -217,15 +249,15 @@ try {
 
     if (dbId) {
       try {
-        db = getFirestore(app, dbId);
-      } catch {
         db = initializeFirestore(app, { ignoreUndefinedProperties: true }, dbId);
+      } catch {
+        db = getFirestore(app, dbId);
       }
     } else {
       try {
-        db = getFirestore(app);
-      } catch {
         db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+      } catch {
+        db = getFirestore(app);
       }
     }
 
@@ -234,8 +266,8 @@ try {
       syncStatusState.isAvailable = true;
       syncStatusState.status = "connected";
       syncStatusState.lastSyncTime = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
-      syncStatusState.lastOperation = `Conectado a Firestore (${dbId || "default"})`;
-      addSyncLog("info", "sistema", "Conexión a Firebase Cloud Firestore activa en tiempo real.");
+      syncStatusState.lastOperation = `Conectado a Firestore Cloud (${dbId || "default"})`;
+      addSyncLog("info", "sistema", `Conexión a Firebase Cloud Firestore activa en tiempo real (${dbId || "default"}).`);
     }
   }
 } catch (err: any) {
@@ -331,26 +363,33 @@ export async function forceSyncFromCloud(): Promise<{ success: boolean; message:
       const docIds = new Set<string>();
 
       snap.forEach(d => {
-        const item = d.data();
-        if (item && item.id != null) {
-          items.push(item);
-          docIds.add(String(item.id));
-        }
+        const raw = d.data();
+        const docId = d.id;
+        const numId = Number(docId);
+        const item = {
+          ...raw,
+          id: raw?.id != null ? raw.id : (!isNaN(numId) ? numId : docId),
+        };
+        items.push(item);
+        docIds.add(String(item.id));
       });
 
-      if (!snap.empty) {
-        knownFirestoreDocIds[colName] = docIds;
-        lastDataSignatures[colName] = calculateFingerprint(items);
-        isCollectionHydrated[colName] = true;
+      // Ordenar por updatedAt o id si es aplicable
+      if (colName === "books" || colName === "ventas" || colName === "movimientos" || colName === "auditLogs") {
+        items.sort((a: any, b: any) => (Number(b.updatedAt || b.id || 0) - Number(a.updatedAt || a.id || 0)));
+      }
 
-        const localKey = storageKeyMap[colName] || colName;
-        if (typeof window !== "undefined") {
-          localStorage.setItem(localKey, JSON.stringify(items));
-        }
+      knownFirestoreDocIds[colName] = docIds;
+      lastDataSignatures[colName] = calculateFingerprint(items);
+      isCollectionHydrated[colName] = true;
 
-        if (registeredCollectionUpdaters[colName]) {
-          registeredCollectionUpdaters[colName](items);
-        }
+      const localKey = storageKeyMap[colName] || colName;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(localKey, JSON.stringify(items));
+      }
+
+      if (registeredCollectionUpdaters[colName]) {
+        registeredCollectionUpdaters[colName](items);
       }
     }
 
@@ -405,12 +444,22 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
           const currentDocIds = new Set<string>();
 
           snapshot.forEach((docSnap) => {
-            const item = docSnap.data() as T;
-            if (item && item.id != null) {
-              remoteItems.push(item);
-              currentDocIds.add(String(item.id));
-            }
+            const raw = docSnap.data();
+            const docId = docSnap.id;
+            const numId = Number(docId);
+            const item = {
+              ...raw,
+              id: raw?.id != null ? raw.id : (!isNaN(numId) ? numId : docId),
+            } as T;
+
+            remoteItems.push(item);
+            currentDocIds.add(String(item.id));
           });
+
+          // Ordenar elementos para consistencia multi-dispositivo
+          if (collectionName === "books" || collectionName === "ventas" || collectionName === "movimientos" || collectionName === "auditLogs") {
+            remoteItems.sort((a: any, b: any) => (Number(b.updatedAt || b.id || 0) - Number(a.updatedAt || a.id || 0)));
+          }
 
           knownFirestoreDocIds[collectionName] = currentDocIds;
 
@@ -451,6 +500,17 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
           if (typeof window !== "undefined") {
             try {
               localStorage.setItem(localKey, JSON.stringify(finalItems));
+            } catch {}
+          }
+
+          // Notificar a otras pestañas/ventanas del navegador
+          if (syncBroadcastChannel) {
+            try {
+              syncBroadcastChannel.postMessage({
+                collectionName,
+                data: finalItems,
+                senderDeviceId: localDeviceId,
+              });
             } catch {}
           }
 
@@ -538,8 +598,8 @@ async function writeCollectionToFirestore<T extends { id: string | number; updat
       }
     });
 
-    // Detectar eliminaciones y borrarlas en Firestore
-    if (previousDocIds.size > 0) {
+    // Detectar eliminaciones y borrarlas en Firestore (solo si la colección ya estaba hidratada)
+    if (isCollectionHydrated[collectionName] && previousDocIds.size > 0) {
       previousDocIds.forEach((oldId) => {
         if (!currentDocIds.has(oldId)) {
           const docRef = doc(db!, collectionName, oldId);
@@ -612,7 +672,18 @@ export function saveEntireCollection<T extends { id: string | number; updatedAt?
     } catch {}
   }
 
-  // Si la colección no ha recibido el primer snapshot de Firestore, NO sobrescribir Firestore con valores locales iniciales
+  // Notificar a otras pestañas/ventanas abiertas en este mismo navegador
+  if (syncBroadcastChannel) {
+    try {
+      syncBroadcastChannel.postMessage({
+        collectionName,
+        data,
+        senderDeviceId: localDeviceId,
+      });
+    } catch {}
+  }
+
+  // Si la colección no ha recibido el primer snapshot de Firestore, NO sobrescribir Firestore con valores locales iniciales vacíos
   if (!isCollectionHydrated[collectionName]) {
     return;
   }
@@ -632,7 +703,7 @@ export function saveEntireCollection<T extends { id: string | number; updatedAt?
 
   pendingDebounceTimers[collectionName] = setTimeout(() => {
     writeCollectionToFirestore(collectionName, data);
-  }, 100);
+  }, 50);
 }
 
 /**

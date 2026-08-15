@@ -270,7 +270,7 @@ export function Stock({ books, setBooks, proveedores, librerias, registrarMovimi
         )
       );
     } else {
-      const newId = Math.max(0, ...books.map(b => b.id)) + 1;
+      const newId = Date.now();
       const newBook: Book = {
         id: newId,
         ...bookData,

@@ -85,7 +85,7 @@ export function ImportExcelModal({
   const ejecutarImportacion = () => {
     if (parsedItems.length === 0) return;
 
-    let maxId = Math.max(0, ...books.map(b => b.id));
+    let baseId = Date.now();
     let agregadosCount = 0;
     let actualizadosCount = 0;
 
@@ -131,9 +131,9 @@ export function ImportExcelModal({
       }
 
       // Si no existe o modo es crear siempre nuevo
-      maxId++;
+      baseId++;
       const nuevoBook: Book = {
-        id: maxId,
+        id: baseId,
         titulo: p.titulo || "Título Desconocido",
         autor: p.autor || "Autor Desconocido",
         editorial: p.editorial || "",

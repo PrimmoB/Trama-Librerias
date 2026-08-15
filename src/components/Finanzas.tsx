@@ -705,7 +705,7 @@ export function Finanzas({
         prev.map(b => (b.id === editBookIdPrivado ? { ...b, ...bookData } : b))
       );
     } else {
-      const newId = Math.max(0, ...books.map(b => b.id)) + 1;
+      const newId = Date.now();
       const newBook: Book = {
         id: newId,
         ...bookData,
