@@ -108,7 +108,7 @@ export function normalizeLibreriasList(rawList: any[] | null | undefined): Libre
     const defaultMatch = DEFAULT_LIBRERIAS.find(d => cleanAlias(d.alias) === aliasKey);
 
     result.push({
-      id: typeof item.id === "number" ? item.id : (defaultMatch?.id || Date.now() + Math.floor(Math.random() * 1000)),
+      id: typeof item.id === "number" ? item.id : (defaultMatch?.id || (!isNaN(Number(item.id)) ? Number(item.id) : (item.id || 1))),
       nombre: item.nombre || defaultMatch?.nombre || `Librería ${aliasStr}`,
       alias: item.alias || defaultMatch?.alias || aliasStr,
       contacto: item.contacto || defaultMatch?.contacto || "Administración",

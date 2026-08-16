@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { ShoppingBag, DollarSign, Users, LogOut, Menu, X, Building2, AlertTriangle, Calculator, Tag, BookOpen, ChevronDown, PieChart, Receipt, Coins, Truck, History, Download, Moon, Sun, Lock, Unlock, ShieldCheck, Zap, MapPin, Phone, Cloud, RefreshCw, CheckCircle2 } from "lucide-react";
 import { RoleType, Book, Venta, Proveedor, Acceso, Movimiento, Gasto, OtroIngreso, TramaInfo, LibreriaEntry, AperturaCaja, CierreCaja, LiquidacionConsignacion, AuditLog } from "./types";
 import { BOOKS_INIT, PROVEEDORES_INIT, VENTAS_INIT, ACCESOS_INIT, MOVIMIENTOS_INIT, GASTOS_INIT, OTROS_INGRESOS_INIT, TRAMA_INFO_INIT, LIBRERIAS_INIT, normalizeLibreriasList } from "./data/initialData";
@@ -21,7 +21,7 @@ export default function App() {
   const [page, setPage] = useState<string>("pos");
   const [isPublicCatalogView, setIsPublicCatalogView] = useState<boolean>(false);
   const [finanzasTab, setFinanzasTab] = useState<"resumen" | "gastos" | "otrosIngresos" | "librerias" | "cierre" | "proveedores" | "movimientos">("resumen");
-  const [accesosTab, setAccesosTab] = useState<"personal" | "datosTrama" | "respaldos" | "sync">("personal");
+  const [accesosTab, setAccesosTab] = useState<"personal" | "datosTrama" | "respaldos">("personal");
   const [libreriaPrivadaActiva, setLibreriaPrivadaActiva] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [posSubModal, setPosSubModal] = useState<"caja" | "etiquetas" | "catalogo" | "liquidaciones" | null>(null);
@@ -79,43 +79,20 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Estados persistentes con localStorage
-  const [books, setBooks] = useLocalStorage<Book[]>("trama_books", BOOKS_INIT);
-  const [ventas, setVentas] = useLocalStorage<Venta[]>("trama_ventas", VENTAS_INIT);
-  const [proveedores, setProveedores] = useLocalStorage<Proveedor[]>("trama_proveedores", PROVEEDORES_INIT);
-  const [tramaInfo, setTramaInfo] = useLocalStorage<TramaInfo>("trama_info_data", TRAMA_INFO_INIT);
-  const [librerias, setLibrerias] = useLocalStorage<LibreriaEntry[]>("trama_librerias_data", LIBRERIAS_INIT);
-  const [accesos, setAccesos] = useLocalStorage<Acceso[]>("trama_accesos", ACCESOS_INIT);
-
-  // Sincronización y validación de integridad independiente de librerías
-  useEffect(() => {
-    setLibrerias(prev => {
-      const normalized = normalizeLibreriasList(prev);
-      if (JSON.stringify(normalized) !== JSON.stringify(prev)) {
-        return normalized;
-      }
-      return prev;
-    });
-  }, []);
-
-  // Sincronización de accesos
-  useEffect(() => {
-    if (accesos.some(a => a.nombre.toLowerCase().includes("jorge"))) {
-      setAccesos(prev => prev.filter(a => !a.nombre.toLowerCase().includes("jorge")));
-    }
-  }, [accesos, setAccesos]);
-
-
-  const [movimientos, setMovimientos] = useLocalStorage<Movimiento[]>("trama_movimientos", MOVIMIENTOS_INIT);
-
-  const [gastos, setGastos] = useLocalStorage<Gasto[]>("trama_gastos", GASTOS_INIT);
-  const [otrosIngresos, setOtrosIngresos] = useLocalStorage<OtroIngreso[]>("trama_otros_ingresos", OTROS_INGRESOS_INIT);
-  const [aperturaActiva, setAperturaActiva] = useLocalStorage<AperturaCaja | null>("trama_apertura_activa", null);
-  const [cierresCaja, setCierresCaja] = useLocalStorage<CierreCaja[]>("trama_cierres_caja", []);
-  const [liquidaciones, setLiquidaciones] = useLocalStorage<LiquidacionConsignacion[]>("trama_liquidaciones", []);
-
-  // Registros de Auditoría y Seguridad
-  const [auditLogs, setAuditLogs] = useLocalStorage<AuditLog[]>("trama_audit_logs", [
+  // Estados persistentes con localStorage para soporte offline
+  const [books, setBooksState] = useLocalStorage<Book[]>("trama_books", BOOKS_INIT);
+  const [ventas, setVentasState] = useLocalStorage<Venta[]>("trama_ventas", VENTAS_INIT);
+  const [proveedores, setProveedoresState] = useLocalStorage<Proveedor[]>("trama_proveedores", PROVEEDORES_INIT);
+  const [tramaInfo, setTramaInfoState] = useLocalStorage<TramaInfo>("trama_info_data", TRAMA_INFO_INIT);
+  const [librerias, setLibreriasState] = useLocalStorage<LibreriaEntry[]>("trama_librerias_data", LIBRERIAS_INIT);
+  const [accesos, setAccesosState] = useLocalStorage<Acceso[]>("trama_accesos", ACCESOS_INIT);
+  const [movimientos, setMovimientosState] = useLocalStorage<Movimiento[]>("trama_movimientos", MOVIMIENTOS_INIT);
+  const [gastos, setGastosState] = useLocalStorage<Gasto[]>("trama_gastos", GASTOS_INIT);
+  const [otrosIngresos, setOtrosIngresosState] = useLocalStorage<OtroIngreso[]>("trama_otros_ingresos", OTROS_INGRESOS_INIT);
+  const [aperturaActiva, setAperturaActivaState] = useLocalStorage<AperturaCaja | null>("trama_apertura_activa", null);
+  const [cierresCaja, setCierresCajaState] = useLocalStorage<CierreCaja[]>("trama_cierres_caja", []);
+  const [liquidaciones, setLiquidacionesState] = useLocalStorage<LiquidacionConsignacion[]>("trama_liquidaciones", []);
+  const [auditLogs, setAuditLogsState] = useLocalStorage<AuditLog[]>("trama_audit_logs", [
     {
       id: "LOG-1001",
       fechaHora: getFechaHoraChile(),
@@ -128,21 +105,147 @@ export default function App() {
     },
   ]);
 
-  // Sincronización en tiempo real con Firebase Firestore
+  // Setters desacoplados: solo persisten a Firestore cuando el cambio proviene de una interacción local UI (isRemote = false)
+  const setBooks = useCallback((action: React.SetStateAction<Book[]>, isRemote: boolean = false) => {
+    setBooksState(prev => {
+      const next = typeof action === "function" ? (action as (p: Book[]) => Book[])(prev) : action;
+      if (!isRemote) saveEntireCollection("books", next);
+      return next;
+    });
+  }, [setBooksState]);
+
+  const setVentas = useCallback((action: React.SetStateAction<Venta[]>, isRemote: boolean = false) => {
+    setVentasState(prev => {
+      const next = typeof action === "function" ? (action as (p: Venta[]) => Venta[])(prev) : action;
+      if (!isRemote) saveEntireCollection("ventas", next);
+      return next;
+    });
+  }, [setVentasState]);
+
+  const setProveedores = useCallback((action: React.SetStateAction<Proveedor[]>, isRemote: boolean = false) => {
+    setProveedoresState(prev => {
+      const next = typeof action === "function" ? (action as (p: Proveedor[]) => Proveedor[])(prev) : action;
+      if (!isRemote) saveEntireCollection("proveedores", next);
+      return next;
+    });
+  }, [setProveedoresState]);
+
+  const setLibrerias = useCallback((action: React.SetStateAction<LibreriaEntry[]>, isRemote: boolean = false) => {
+    setLibreriasState(prev => {
+      const rawNext = typeof action === "function" ? (action as (p: LibreriaEntry[]) => LibreriaEntry[])(prev) : action;
+      const next = normalizeLibreriasList(rawNext);
+      if (!isRemote) saveEntireCollection("librerias", next);
+      return next;
+    });
+  }, [setLibreriasState]);
+
+  const setAccesos = useCallback((action: React.SetStateAction<Acceso[]>, isRemote: boolean = false) => {
+    setAccesosState(prev => {
+      const next = typeof action === "function" ? (action as (p: Acceso[]) => Acceso[])(prev) : action;
+      if (!isRemote) saveEntireCollection("accesos", next);
+      return next;
+    });
+  }, [setAccesosState]);
+
+  const setMovimientos = useCallback((action: React.SetStateAction<Movimiento[]>, isRemote: boolean = false) => {
+    setMovimientosState(prev => {
+      const next = typeof action === "function" ? (action as (p: Movimiento[]) => Movimiento[])(prev) : action;
+      if (!isRemote) saveEntireCollection("movimientos", next);
+      return next;
+    });
+  }, [setMovimientosState]);
+
+  const setGastos = useCallback((action: React.SetStateAction<Gasto[]>, isRemote: boolean = false) => {
+    setGastosState(prev => {
+      const next = typeof action === "function" ? (action as (p: Gasto[]) => Gasto[])(prev) : action;
+      if (!isRemote) saveEntireCollection("gastos", next);
+      return next;
+    });
+  }, [setGastosState]);
+
+  const setOtrosIngresos = useCallback((action: React.SetStateAction<OtroIngreso[]>, isRemote: boolean = false) => {
+    setOtrosIngresosState(prev => {
+      const next = typeof action === "function" ? (action as (p: OtroIngreso[]) => OtroIngreso[])(prev) : action;
+      if (!isRemote) saveEntireCollection("otrosIngresos", next);
+      return next;
+    });
+  }, [setOtrosIngresosState]);
+
+  const setAuditLogs = useCallback((action: React.SetStateAction<AuditLog[]>, isRemote: boolean = false) => {
+    setAuditLogsState(prev => {
+      const next = typeof action === "function" ? (action as (p: AuditLog[]) => AuditLog[])(prev) : action;
+      if (!isRemote) saveEntireCollection("auditLogs", next);
+      return next;
+    });
+  }, [setAuditLogsState]);
+
+  const setCierresCaja = useCallback((action: React.SetStateAction<CierreCaja[]>, isRemote: boolean = false) => {
+    setCierresCajaState(prev => {
+      const next = typeof action === "function" ? (action as (p: CierreCaja[]) => CierreCaja[])(prev) : action;
+      if (!isRemote) saveEntireCollection("cierresCaja", next);
+      return next;
+    });
+  }, [setCierresCajaState]);
+
+  const setLiquidaciones = useCallback((action: React.SetStateAction<LiquidacionConsignacion[]>, isRemote: boolean = false) => {
+    setLiquidacionesState(prev => {
+      const next = typeof action === "function" ? (action as (p: LiquidacionConsignacion[]) => LiquidacionConsignacion[])(prev) : action;
+      if (!isRemote) saveEntireCollection("liquidaciones", next);
+      return next;
+    });
+  }, [setLiquidacionesState]);
+
+  const setAperturaActiva = useCallback((action: React.SetStateAction<AperturaCaja | null>, isRemote: boolean = false) => {
+    setAperturaActivaState(prev => {
+      const next = typeof action === "function" ? (action as (p: AperturaCaja | null) => AperturaCaja | null)(prev) : action;
+      if (!isRemote) saveAperturaActiva(next);
+      return next;
+    });
+  }, [setAperturaActivaState]);
+
+  const setTramaInfo = useCallback((action: React.SetStateAction<TramaInfo>, isRemote: boolean = false) => {
+    setTramaInfoState(prev => {
+      const next = typeof action === "function" ? (action as (p: TramaInfo) => TramaInfo)(prev) : action;
+      if (!isRemote && next) saveInfoEmpresa(next);
+      return next;
+    });
+  }, [setTramaInfoState]);
+
+  // Sincronización e integridad de librerías y accesos
   useEffect(() => {
-    const unsubBooks = syncCollection<Book>("books", (data) => setBooks(data), BOOKS_INIT);
-    const unsubVentas = syncCollection<Venta>("ventas", (data) => setVentas(data), VENTAS_INIT);
-    const unsubProveedores = syncCollection<Proveedor>("proveedores", (data) => setProveedores(data), PROVEEDORES_INIT);
-    const unsubLibrerias = syncCollection<LibreriaEntry>("librerias", (data) => setLibrerias(normalizeLibreriasList(data)), LIBRERIAS_INIT);
-    const unsubAccesos = syncCollection<Acceso>("accesos", (data) => setAccesos(data), ACCESOS_INIT);
-    const unsubMovimientos = syncCollection<Movimiento>("movimientos", (data) => setMovimientos(data), MOVIMIENTOS_INIT);
-    const unsubGastos = syncCollection<Gasto>("gastos", (data) => setGastos(data), GASTOS_INIT);
-    const unsubOtros = syncCollection<OtroIngreso>("otrosIngresos", (data) => setOtrosIngresos(data), OTROS_INGRESOS_INIT);
-    const unsubAudit = syncCollection<AuditLog>("auditLogs", (data) => setAuditLogs(data), []);
-    const unsubCierres = syncCollection<CierreCaja>("cierresCaja", (data) => setCierresCaja(data), []);
-    const unsubLiquidaciones = syncCollection<LiquidacionConsignacion>("liquidaciones", (data) => setLiquidaciones(data), []);
-    const unsubApertura = syncAperturaActiva((ap) => setAperturaActiva(ap), null);
-    const unsubInfo = syncInfoEmpresa((info) => setTramaInfo(info), TRAMA_INFO_INIT);
+    setLibrerias(prev => {
+      const normalized = normalizeLibreriasList(prev);
+      if (JSON.stringify(normalized) !== JSON.stringify(prev)) {
+        return normalized;
+      }
+      return prev;
+    }, true);
+  }, [setLibrerias]);
+
+  useEffect(() => {
+    setAccesos(prev => {
+      if (prev.some(a => a.nombre.toLowerCase().includes("jorge"))) {
+        return prev.filter(a => !a.nombre.toLowerCase().includes("jorge"));
+      }
+      return prev;
+    }, true);
+  }, [setAccesos]);
+
+  // Sincronización en tiempo real con Firebase Firestore (Flujo de entrada remoto)
+  useEffect(() => {
+    const unsubBooks = syncCollection<Book>("books", (data) => setBooks(data, true), BOOKS_INIT);
+    const unsubVentas = syncCollection<Venta>("ventas", (data) => setVentas(data, true), VENTAS_INIT);
+    const unsubProveedores = syncCollection<Proveedor>("proveedores", (data) => setProveedores(data, true), PROVEEDORES_INIT);
+    const unsubLibrerias = syncCollection<LibreriaEntry>("librerias", (data) => setLibrerias(normalizeLibreriasList(data), true), LIBRERIAS_INIT);
+    const unsubAccesos = syncCollection<Acceso>("accesos", (data) => setAccesos(data, true), ACCESOS_INIT);
+    const unsubMovimientos = syncCollection<Movimiento>("movimientos", (data) => setMovimientos(data, true), MOVIMIENTOS_INIT);
+    const unsubGastos = syncCollection<Gasto>("gastos", (data) => setGastos(data, true), GASTOS_INIT);
+    const unsubOtros = syncCollection<OtroIngreso>("otrosIngresos", (data) => setOtrosIngresos(data, true), OTROS_INGRESOS_INIT);
+    const unsubAudit = syncCollection<AuditLog>("auditLogs", (data) => setAuditLogs(data, true), []);
+    const unsubCierres = syncCollection<CierreCaja>("cierresCaja", (data) => setCierresCaja(data, true), []);
+    const unsubLiquidaciones = syncCollection<LiquidacionConsignacion>("liquidaciones", (data) => setLiquidaciones(data, true), []);
+    const unsubApertura = syncAperturaActiva((ap) => setAperturaActiva(ap, true), null);
+    const unsubInfo = syncInfoEmpresa((info) => setTramaInfo(info, true), TRAMA_INFO_INIT);
 
     return () => {
       unsubBooks();
@@ -159,22 +262,7 @@ export default function App() {
       unsubApertura();
       unsubInfo();
     };
-  }, []);
-
-  // Actualización instantánea a Firestore al modificar datos locales
-  useEffect(() => { saveEntireCollection("books", books); }, [books]);
-  useEffect(() => { saveEntireCollection("ventas", ventas); }, [ventas]);
-  useEffect(() => { saveEntireCollection("proveedores", proveedores); }, [proveedores]);
-  useEffect(() => { saveEntireCollection("librerias", librerias); }, [librerias]);
-  useEffect(() => { saveEntireCollection("accesos", accesos); }, [accesos]);
-  useEffect(() => { saveEntireCollection("movimientos", movimientos); }, [movimientos]);
-  useEffect(() => { saveEntireCollection("gastos", gastos); }, [gastos]);
-  useEffect(() => { saveEntireCollection("otrosIngresos", otrosIngresos); }, [otrosIngresos]);
-  useEffect(() => { saveEntireCollection("auditLogs", auditLogs); }, [auditLogs]);
-  useEffect(() => { saveEntireCollection("cierresCaja", cierresCaja); }, [cierresCaja]);
-  useEffect(() => { saveEntireCollection("liquidaciones", liquidaciones); }, [liquidaciones]);
-  useEffect(() => { saveAperturaActiva(aperturaActiva); }, [aperturaActiva]);
-  useEffect(() => { if (tramaInfo) saveInfoEmpresa(tramaInfo); }, [tramaInfo]);
+  }, [setBooks, setVentas, setProveedores, setLibrerias, setAccesos, setMovimientos, setGastos, setOtrosIngresos, setAuditLogs, setCierresCaja, setLiquidaciones, setAperturaActiva, setTramaInfo]);
 
   const logAuditAction = (
     accion: string,
@@ -527,8 +615,7 @@ export default function App() {
                   <span className="text-xs text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-200 font-semibold">
                     {accesosTab === "personal" && "👤 Personal y Cuentas"}
                     {accesosTab === "datosTrama" && "🏢 Datos de Trama & Ubicación"}
-                    {accesosTab === "respaldos" && "💾 Respaldos y Seguridad"}
-                    {accesosTab === "sync" && "⚡ Diagnóstico Nube & Firestore"}
+                    {accesosTab === "respaldos" && "🛡️ Respaldos, Nube y Seguridad"}
                   </span>
                 )}
               </h2>

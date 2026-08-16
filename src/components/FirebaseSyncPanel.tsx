@@ -18,6 +18,7 @@ import {
   ChevronUp,
   AlertCircle,
   CloudDownload,
+  CloudUpload,
   Copy,
   Check,
   Smartphone,
@@ -32,6 +33,7 @@ import {
   getFirebaseSyncStatus,
   testFirebaseConnection,
   forceSyncFromCloud,
+  pushAllLocalToCloud,
   clearSyncLogs,
   getDeviceDiagnosticInfo,
   FirebaseSyncStatus,
@@ -58,6 +60,7 @@ export const FirebaseSyncPanel: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<FirebaseSyncStatus>(getFirebaseSyncStatus());
   const [isTesting, setIsTesting] = useState(false);
   const [isPulling, setIsPulling] = useState(false);
+  const [isPushing, setIsPushing] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; latencyMs: number; message: string } | null>(null);
   const [showLogs, setShowLogs] = useState(true);
   const [logFilter, setLogFilter] = useState<"todos" | "success" | "error" | "syncing" | "info">("todos");
@@ -107,6 +110,29 @@ export const FirebaseSyncPanel: React.FC = () => {
       });
     } finally {
       setIsPulling(false);
+    }
+  };
+
+  const handlePushAll = async () => {
+    if (!window.confirm("¿Deseas subir todos los datos locales actuales (inventario, ventas, cuentas, etc.) a Cloud Firestore?")) {
+      return;
+    }
+    setIsPushing(true);
+    try {
+      const res = await pushAllLocalToCloud();
+      setTestResult({
+        success: res.success,
+        latencyMs: 0,
+        message: res.message
+      });
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        latencyMs: 0,
+        message: `Error al subir datos: ${err?.message || String(err)}`
+      });
+    } finally {
+      setIsPushing(false);
     }
   };
 
@@ -229,19 +255,31 @@ export const FirebaseSyncPanel: React.FC = () => {
           <button
             type="button"
             onClick={handleForcePull}
-            disabled={isPulling || isTesting}
+            disabled={isPulling || isTesting || isPushing}
             className="px-3.5 py-1.5 bg-purple-900 hover:bg-purple-950 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-2xs"
             title="Descarga y sincroniza todos los datos actualizados desde Cloud Firestore"
           >
             <CloudDownload size={14} className={isPulling ? "animate-bounce text-purple-200" : "text-purple-300"} />
-            <span>{isPulling ? "Sincronizando..." : "Sincronizar Nube"}</span>
+            <span>{isPulling ? "Descargando..." : "Descargar Nube"}</span>
+          </button>
+
+          {/* BOTÓN SUBIR A NUBE (PUSH) */}
+          <button
+            type="button"
+            onClick={handlePushAll}
+            disabled={isPushing || isTesting || isPulling}
+            className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-2xs"
+            title="Sube todos los datos locales actuales (inventario, ventas, cuentas) a Cloud Firestore"
+          >
+            <CloudUpload size={14} className={isPushing ? "animate-bounce text-emerald-200" : "text-emerald-200"} />
+            <span>{isPushing ? "Subiendo..." : "Subir a Nube"}</span>
           </button>
 
           {/* BOTÓN PROBAR PING */}
           <button
             type="button"
             onClick={handleRunPingTest}
-            disabled={isTesting || isPulling}
+            disabled={isTesting || isPulling || isPushing}
             className="px-3.5 py-1.5 bg-stone-900 hover:bg-black text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-2xs"
             title="Prueba de lectura y escritura en tiempo real con cálculo de latencia"
           >

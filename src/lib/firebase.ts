@@ -9,10 +9,12 @@ import {
   deleteDoc,
   writeBatch,
   getDocs,
+  getDocFromServer,
   Firestore,
   Unsubscribe,
 } from "firebase/firestore";
 import defaultFirebaseConfig from "../../firebase-applet-config.json";
+import { normalizeLibreriasList } from "../data/initialData";
 
 // Mapeo de colecciones a claves de almacenamiento local
 export const storageKeyMap: Record<string, string> = {
@@ -76,7 +78,7 @@ const syncStatusState: FirebaseSyncStatus = {
   isAvailable: false,
   status: "offline",
   lastSyncTime: null,
-  lastOperation: "Iniciando sincronización con Firebase Cloud...",
+  lastOperation: "Iniciando enlace con Cloud Firestore...",
   writeErrors: 0,
   readErrors: 0,
   lastErrorMessage: null,
@@ -113,6 +115,8 @@ export function getDeviceDiagnosticInfo() {
       browser: "Node.js",
       online: true,
       screen: "N/A",
+      projectId: firebaseConfig.projectId,
+      appId: firebaseConfig.appId,
     };
   }
 
@@ -168,19 +172,18 @@ function updateSyncStatus(updater: (prev: FirebaseSyncStatus) => void) {
 function addSyncLog(type: "success" | "syncing" | "error" | "info", collectionName: string, message: string) {
   const timeZoneStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
   const entry: FirebaseSyncLogEntry = {
-    id: `${Date.now()}-${Math.random()}`,
+    id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     timestamp: timeZoneStr,
     type,
     collection: collectionName,
     message,
   };
-  syncStatusState.logs = [entry, ...syncStatusState.logs].slice(0, 40);
+  syncStatusState.logs = [entry, ...syncStatusState.logs].slice(0, 50);
 }
 
 // Banderas de control multi-dispositivo y prevención de loops
 const isCollectionHydrated: Record<string, boolean> = {};
 const lastDataSignatures: Record<string, string> = {};
-const knownFirestoreDocIds: Record<string, Set<string>> = {};
 const pendingDebounceTimers: Record<string, any> = {};
 
 // Callbacks registrados para sincronización forzada bajo demanda
@@ -227,6 +230,16 @@ export function sanitizeForFirestore<T>(data: T): T {
 }
 
 /**
+ * Convierte cualquier identificador en un ID válido para Firestore (sin barras ni caracteres inválidos)
+ */
+export function toSafeDocId(id: any): string {
+  if (id === null || id === undefined || String(id).trim() === "") {
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  }
+  return String(id).replace(/[\/\\]/g, "-").replace(/\s+/g, "_").trim();
+}
+
+/**
  * Calcula una firma hash estable para comparar cambios reales
  */
 export function calculateFingerprint(data: any): string {
@@ -238,7 +251,7 @@ export function calculateFingerprint(data: any): string {
   }
 }
 
-// Inicialización segura de Firestore con ignoreUndefinedProperties prioritario
+// Inicialización de Firestore con ignoreUndefinedProperties y detección automática de long-polling para entornos con proxies/iframes
 try {
   if (typeof window !== "undefined") {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -247,15 +260,20 @@ try {
       (defaultFirebaseConfig as any)?.firestoreDatabaseId ||
       (defaultFirebaseConfig as any)?.databaseId;
 
+    const firestoreSettings = {
+      ignoreUndefinedProperties: true,
+      experimentalAutoDetectLongPolling: true,
+    };
+
     if (dbId) {
       try {
-        db = initializeFirestore(app, { ignoreUndefinedProperties: true }, dbId);
+        db = initializeFirestore(app, firestoreSettings, dbId);
       } catch {
         db = getFirestore(app, dbId);
       }
     } else {
       try {
-        db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+        db = initializeFirestore(app, firestoreSettings);
       } catch {
         db = getFirestore(app);
       }
@@ -267,7 +285,7 @@ try {
       syncStatusState.status = "connected";
       syncStatusState.lastSyncTime = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
       syncStatusState.lastOperation = `Conectado a Firestore Cloud (${dbId || "default"})`;
-      addSyncLog("info", "sistema", `Conexión a Firebase Cloud Firestore activa en tiempo real (${dbId || "default"}).`);
+      addSyncLog("info", "sistema", `Conexión a Firebase Cloud Firestore activa en tiempo real.`);
     }
   }
 } catch (err: any) {
@@ -341,17 +359,17 @@ export async function testFirebaseConnection(): Promise<{ success: boolean; late
 }
 
 /**
- * Forzar lectura inmediata de todas las colecciones desde Firestore a la memoria local
+ * Forzar lectura inmediata de todas las colecciones desde Firestore a la memoria local (PULL)
  */
 export async function forceSyncFromCloud(): Promise<{ success: boolean; message: string }> {
   if (!db || !isFirebaseAvailable) {
-    return { success: false, message: "Firebase no está disponible." };
+    return { success: false, message: "Firebase no está disponible o no hay conexión." };
   }
 
   try {
     updateSyncStatus(s => {
       s.status = "syncing";
-      s.lastOperation = "Descargando estado actualizado desde Firestore...";
+      s.lastOperation = "Descargando estado actualizado desde Cloud Firestore...";
     });
 
     const collectionsToFetch = Object.keys(storageKeyMap).filter(k => k !== "infoEmpresa" && k !== "aperturaActiva");
@@ -360,7 +378,6 @@ export async function forceSyncFromCloud(): Promise<{ success: boolean; message:
       const colRef = collection(db, colName);
       const snap = await getDocs(colRef);
       const items: any[] = [];
-      const docIds = new Set<string>();
 
       snap.forEach(d => {
         const raw = d.data();
@@ -371,7 +388,6 @@ export async function forceSyncFromCloud(): Promise<{ success: boolean; message:
           id: raw?.id != null ? raw.id : (!isNaN(numId) ? numId : docId),
         };
         items.push(item);
-        docIds.add(String(item.id));
       });
 
       // Ordenar por updatedAt o id si es aplicable
@@ -379,28 +395,36 @@ export async function forceSyncFromCloud(): Promise<{ success: boolean; message:
         items.sort((a: any, b: any) => (Number(b.updatedAt || b.id || 0) - Number(a.updatedAt || a.id || 0)));
       }
 
-      knownFirestoreDocIds[colName] = docIds;
       lastDataSignatures[colName] = calculateFingerprint(items);
       isCollectionHydrated[colName] = true;
 
       const localKey = storageKeyMap[colName] || colName;
       if (typeof window !== "undefined") {
-        localStorage.setItem(localKey, JSON.stringify(items));
+        try {
+          localStorage.setItem(localKey, JSON.stringify(items));
+        } catch {}
       }
 
       if (registeredCollectionUpdaters[colName]) {
         registeredCollectionUpdaters[colName](items);
       }
+
+      updateSyncStatus(s => {
+        if (s.collections[colName]) {
+          s.collections[colName].status = "synced";
+          s.collections[colName].docsCount = items.length;
+        }
+      });
     }
 
     const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
     updateSyncStatus(s => {
       s.status = "connected";
       s.lastSyncTime = timeStr;
-      s.lastOperation = "Sincronización manual completada con éxito";
+      s.lastOperation = "Sincronización completada con éxito";
     });
 
-    addSyncLog("success", "sistema", "Todas las colecciones fueron actualizadas desde la nube.");
+    addSyncLog("success", "sistema", "Todas las colecciones fueron sincronizadas desde la nube.");
     return { success: true, message: "Datos actualizados correctamente desde Cloud Firestore." };
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -408,12 +432,87 @@ export async function forceSyncFromCloud(): Promise<{ success: boolean; message:
       s.status = "error";
       s.lastErrorMessage = errMsg;
     });
+    addSyncLog("error", "sistema", `Error al sincronizar: ${errMsg}`);
     return { success: false, message: `Error al sincronizar: ${errMsg}` };
   }
 }
 
 /**
- * Suscribe una colección a Firestore con sincronización bidireccional inmediata y protección contra sobreescrituras
+ * Subir todos los datos locales actuales a Cloud Firestore (PUSH / Sembrar / Reemplazar)
+ */
+export async function pushAllLocalToCloud(): Promise<{ success: boolean; message: string }> {
+  if (!db || !isFirebaseAvailable) {
+    return { success: false, message: "Firebase no está disponible o no hay conexión." };
+  }
+
+  try {
+    updateSyncStatus(s => {
+      s.status = "syncing";
+      s.lastOperation = "Subiendo datos locales a Cloud Firestore...";
+    });
+
+    let totalUploaded = 0;
+
+    for (const [colName, localKey] of Object.entries(storageKeyMap)) {
+      if (colName === "infoEmpresa") {
+        const rawInfo = localStorage.getItem("trama_info_data");
+        if (rawInfo) {
+          try {
+            const info = JSON.parse(rawInfo);
+            await setDoc(doc(db, "infoEmpresa", "general"), sanitizeForFirestore(info), { merge: true });
+            totalUploaded += 1;
+          } catch {}
+        }
+        continue;
+      }
+
+      if (colName === "aperturaActiva") {
+        const rawAp = localStorage.getItem("trama_apertura_activa");
+        if (rawAp) {
+          try {
+            const ap = JSON.parse(rawAp);
+            if (ap) {
+              await setDoc(doc(db, "aperturaActiva", "actual"), sanitizeForFirestore(ap), { merge: true });
+              totalUploaded += 1;
+            }
+          } catch {}
+        }
+        continue;
+      }
+
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        try {
+          const items = JSON.parse(raw);
+          if (Array.isArray(items)) {
+            await saveEntireCollection(colName, items);
+            totalUploaded += items.length;
+          }
+        } catch {}
+      }
+    }
+
+    const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
+    updateSyncStatus(s => {
+      s.status = "connected";
+      s.lastSyncTime = timeStr;
+      s.lastOperation = `Subida completada (${totalUploaded} registros)`;
+    });
+
+    addSyncLog("success", "sistema", `Subida completa a Firestore finalizada (${totalUploaded} registros).`);
+    return { success: true, message: `Se subieron ${totalUploaded} registros a Cloud Firestore con éxito.` };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    updateSyncStatus(s => {
+      s.status = "error";
+      s.lastErrorMessage = errMsg;
+    });
+    return { success: false, message: `Error al subir datos: ${errMsg}` };
+  }
+}
+
+/**
+ * Suscribe una colección a Firestore con sincronización bidireccional inmediata
  */
 export function syncCollection<T extends { id: string | number; updatedAt?: number }>(
   collectionName: string,
@@ -441,7 +540,6 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
         try {
           const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
           const remoteItems: T[] = [];
-          const currentDocIds = new Set<string>();
 
           snapshot.forEach((docSnap) => {
             const raw = docSnap.data();
@@ -453,7 +551,6 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
             } as T;
 
             remoteItems.push(item);
-            currentDocIds.add(String(item.id));
           });
 
           // Ordenar elementos para consistencia multi-dispositivo
@@ -461,42 +558,53 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
             remoteItems.sort((a: any, b: any) => (Number(b.updatedAt || b.id || 0) - Number(a.updatedAt || a.id || 0)));
           }
 
-          knownFirestoreDocIds[collectionName] = currentDocIds;
+          let finalItems: T[] = remoteItems;
+          const isFirstHydration = !isCollectionHydrated[collectionName];
 
-          // Leer estado local actual de la memoria caché
-          const localRaw = typeof window !== "undefined" ? localStorage.getItem(localKey) : null;
-          let localItems: T[] = [];
-          if (localRaw) {
-            try {
-              const parsed = JSON.parse(localRaw);
-              if (Array.isArray(parsed)) localItems = parsed;
-            } catch {}
-          }
-
-          let finalItems: T[] = [];
-
-          if (snapshot.empty) {
-            // Firestore está completamente vacío (primera inicialización de la nube)
-            if (localItems.length > 0) {
-              finalItems = localItems;
-            } else if (initialData.length > 0) {
-              finalItems = initialData;
-            } else {
-              finalItems = [];
+          if (isFirstHydration) {
+            let localExisting: T[] = [];
+            if (typeof window !== "undefined") {
+              try {
+                const rawLocal = localStorage.getItem(localKey);
+                if (rawLocal) {
+                  const parsed = JSON.parse(rawLocal);
+                  if (Array.isArray(parsed) && parsed.length > 0) {
+                    localExisting = parsed;
+                  }
+                }
+              } catch {}
             }
 
-            // Marcar hidratado ANTES de sembrar Firestore para permitir el guardado
-            isCollectionHydrated[collectionName] = true;
-            if (finalItems.length > 0) {
-              writeCollectionToFirestore(collectionName, finalItems);
+            if (localExisting.length === 0 && initialData.length > 0) {
+              localExisting = initialData;
+            }
+
+            if (remoteItems.length > 0) {
+              // Si Firestore ya contiene registros, la nube es la fuente autoritativa de verdad.
+              // Aceptamos los datos de la nube sin resucitar borradores viejos del localStorage local.
+              finalItems = remoteItems;
+              isCollectionHydrated[collectionName] = true;
+            } else if (localExisting.length > 0) {
+              // Si la nube está completamente VACÍA para esta colección, la sembramos con el estado local/inicial.
+              finalItems = localExisting;
+              isCollectionHydrated[collectionName] = true;
+              saveEntireCollection(collectionName, finalItems);
+            } else {
+              isCollectionHydrated[collectionName] = true;
+              finalItems = remoteItems;
             }
           } else {
-            // Firestore tiene datos: Firestore es la fuente de verdad definitiva para todos los navegadores/dispositivos
-            finalItems = remoteItems;
+            // Actualizaciones subsecuentes en tiempo real
             isCollectionHydrated[collectionName] = true;
+            finalItems = remoteItems;
           }
 
-          // Guardar en almacenamiento local
+          // Si es librerías, asegurar lista normalizada antes de calcular firma y notificar
+          if (collectionName === "librerias") {
+            finalItems = normalizeLibreriasList(finalItems as any) as any;
+          }
+
+          // Guardar en almacenamiento local para acceso offline instantáneo
           if (typeof window !== "undefined") {
             try {
               localStorage.setItem(localKey, JSON.stringify(finalItems));
@@ -514,7 +622,7 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
             } catch {}
           }
 
-          // Guardar la firma exacta para que el useEffect local no re-escriba Firestore
+          // Guardar la firma exacta para que el useEffect local no re-escriba Firestore innecesariamente
           lastDataSignatures[collectionName] = calculateFingerprint(finalItems);
 
           // Notificar al estado de React
@@ -567,97 +675,130 @@ export function syncCollection<T extends { id: string | number; updatedAt?: numb
 }
 
 /**
- * Función interna para enviar un lote completo a Firestore
+ * Guarda o actualiza un documento individual de forma inmediata y atómica en Firestore
  */
-async function writeCollectionToFirestore<T extends { id: string | number; updatedAt?: number }>(
+export async function saveDocument<T extends { id: string | number; updatedAt?: number }>(
   collectionName: string,
-  data: T[]
+  item: T
 ) {
-  if (!db || !isFirebaseAvailable || !Array.isArray(data)) return;
+  if (!item || item.id == null) return;
+  const docId = toSafeDocId(item.id);
+  (item as any).updatedAt = Date.now();
+
+  const localKey = storageKeyMap[collectionName] || collectionName;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          const idx = arr.findIndex((x: any) => toSafeDocId(x.id) === docId);
+          if (idx >= 0) arr[idx] = item;
+          else arr.unshift(item);
+          localStorage.setItem(localKey, JSON.stringify(arr));
+        }
+      }
+    } catch {}
+  }
+
+  if (syncBroadcastChannel) {
+    try {
+      syncBroadcastChannel.postMessage({
+        collectionName,
+        action: "saveDocument",
+        item,
+        senderDeviceId: localDeviceId,
+      });
+    } catch {}
+  }
+
+  if (!db || !isFirebaseAvailable) return;
 
   try {
-    const currentDocIds = new Set<string>();
-    const sanitizedData = data.map(item => {
-      const sanitized = sanitizeForFirestore(item);
-      if (!(sanitized as any).updatedAt) {
-        (sanitized as any).updatedAt = Date.now();
-      }
-      if (sanitized && sanitized.id != null) {
-        currentDocIds.add(String(sanitized.id));
-      }
-      return sanitized;
-    });
-
-    const previousDocIds = knownFirestoreDocIds[collectionName] || new Set<string>();
-    const ops: Array<{ type: "set"; ref: any; docData: any } | { type: "delete"; ref: any }> = [];
-
-    sanitizedData.forEach((item) => {
-      if (item && item.id != null) {
-        const docRef = doc(db!, collectionName, String(item.id));
-        ops.push({ type: "set", ref: docRef, docData: item });
-      }
-    });
-
-    // Detectar eliminaciones y borrarlas en Firestore (solo si la colección ya estaba hidratada)
-    if (isCollectionHydrated[collectionName] && previousDocIds.size > 0) {
-      previousDocIds.forEach((oldId) => {
-        if (!currentDocIds.has(oldId)) {
-          const docRef = doc(db!, collectionName, oldId);
-          ops.push({ type: "delete", ref: docRef });
-        }
-      });
-    }
-
-    if (ops.length > 0) {
-      for (let i = 0; i < ops.length; i += 400) {
-        const batch = writeBatch(db!);
-        const chunk = ops.slice(i, i + 400);
-        chunk.forEach((op) => {
-          if (op.type === "set") {
-            batch.set(op.ref, op.docData, { merge: true });
-          } else {
-            batch.delete(op.ref);
-          }
-        });
-        await batch.commit();
-      }
-    }
-
-    knownFirestoreDocIds[collectionName] = currentDocIds;
+    const sanitized = sanitizeForFirestore(item);
+    const docRef = doc(db, collectionName, docId);
+    await setDoc(docRef, sanitized, { merge: true });
 
     const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
     updateSyncStatus(s => {
       s.status = "connected";
       s.lastSyncTime = timeStr;
-      s.lastOperation = `Guardado exitoso en '${collectionName}' (${sanitizedData.length} docs)`;
-      s.collections[collectionName] = {
-        status: "synced",
-        docsCount: sanitizedData.length,
-        lastUpdated: timeStr,
-      };
+      s.lastOperation = `Guardado doc #${docId} en '${collectionName}'`;
+      if (s.collections[collectionName]) {
+        s.collections[collectionName].status = "synced";
+        s.collections[collectionName].lastUpdated = timeStr;
+      }
     });
-    addSyncLog("success", collectionName, `${sanitizedData.length} registros guardados en Firestore.`);
+    addSyncLog("success", collectionName, `Doc #${docId} guardado en Firestore.`);
   } catch (err: any) {
-    console.warn(`[Firebase] Error al escribir en '${collectionName}':`, err);
+    console.warn(`[Firebase] Error guardando doc #${docId} en '${collectionName}':`, err);
     const errMsg = err?.message || String(err);
     updateSyncStatus(s => {
-      s.status = "error";
       s.writeErrors += 1;
       s.lastErrorMessage = errMsg;
-      s.collections[collectionName] = {
-        status: "error",
-        docsCount: data.length,
-        errorMessage: errMsg,
-      };
     });
-    addSyncLog("error", collectionName, `Error al guardar: ${errMsg}`);
+    addSyncLog("error", collectionName, `Error al guardar #${docId}: ${errMsg}`);
   }
 }
 
 /**
- * Guarda o actualiza la colección completa en Firestore con debouncing y guardas anti-sobrescritura
+ * Elimina un documento individual de forma inmediata en Firestore
  */
-export function saveEntireCollection<T extends { id: string | number; updatedAt?: number }>(
+export async function deleteDocument(
+  collectionName: string,
+  docId: string | number
+) {
+  if (docId == null) return;
+  const idStr = toSafeDocId(docId);
+
+  const localKey = storageKeyMap[collectionName] || collectionName;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(localKey);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          const filtered = arr.filter((x: any) => toSafeDocId(x.id) !== idStr);
+          localStorage.setItem(localKey, JSON.stringify(filtered));
+        }
+      }
+    } catch {}
+  }
+
+  if (syncBroadcastChannel) {
+    try {
+      syncBroadcastChannel.postMessage({
+        collectionName,
+        action: "deleteDocument",
+        docId: idStr,
+        senderDeviceId: localDeviceId,
+      });
+    } catch {}
+  }
+
+  if (!db || !isFirebaseAvailable) return;
+
+  try {
+    const docRef = doc(db, collectionName, idStr);
+    await deleteDoc(docRef);
+
+    const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
+    updateSyncStatus(s => {
+      s.status = "connected";
+      s.lastSyncTime = timeStr;
+      s.lastOperation = `Eliminado doc #${idStr} en '${collectionName}'`;
+    });
+    addSyncLog("info", collectionName, `Doc #${idStr} eliminado de Firestore.`);
+  } catch (err: any) {
+    console.warn(`[Firebase] Error eliminando doc #${idStr} en '${collectionName}':`, err);
+    addSyncLog("error", collectionName, `Error al eliminar #${idStr}: ${err?.message || String(err)}`);
+  }
+}
+
+/**
+ * Guarda o sincroniza una colección completa en Firestore con reconciliación y eliminación de registros borrados
+ */
+export async function saveEntireCollection<T extends { id: string | number; updatedAt?: number }>(
   collectionName: string,
   data: T[]
 ) {
@@ -683,7 +824,7 @@ export function saveEntireCollection<T extends { id: string | number; updatedAt?
     } catch {}
   }
 
-  // Si la colección no ha recibido el primer snapshot de Firestore, NO sobrescribir Firestore con valores locales iniciales vacíos
+  // Si la colección no ha recibido el primer snapshot de Firestore, no escribir para evitar colisiones
   if (!isCollectionHydrated[collectionName]) {
     return;
   }
@@ -696,94 +837,123 @@ export function saveEntireCollection<T extends { id: string | number; updatedAt?
 
   lastDataSignatures[collectionName] = fingerprint;
 
-  // Debounce para agrupar múltiples llamadas rápidas
+  // Debounce para agrupar llamadas
   if (pendingDebounceTimers[collectionName]) {
     clearTimeout(pendingDebounceTimers[collectionName]);
   }
 
-  pendingDebounceTimers[collectionName] = setTimeout(() => {
-    writeCollectionToFirestore(collectionName, data);
-  }, 50);
+  pendingDebounceTimers[collectionName] = setTimeout(async () => {
+    if (!db || !isFirebaseAvailable) return;
+
+    try {
+      if (data.length === 0) {
+        await clearCollectionInFirestore(collectionName);
+        return;
+      }
+
+      // Obtener snapshot remoto actual para reconciliar eliminaciones
+      const colRef = collection(db, collectionName);
+      const currentSnap = await getDocs(colRef);
+      const localIdSet = new Set<string>();
+
+      data.forEach(item => {
+        if (item && item.id != null) {
+          localIdSet.add(toSafeDocId(item.id));
+        }
+      });
+
+      // 1. Eliminar documentos que ya no existen localmente
+      const toDeleteDocs: any[] = [];
+      currentSnap.forEach(remoteDoc => {
+        if (!localIdSet.has(remoteDoc.id)) {
+          toDeleteDocs.push(remoteDoc.ref);
+        }
+      });
+
+      if (toDeleteDocs.length > 0) {
+        for (let i = 0; i < toDeleteDocs.length; i += 400) {
+          const chunk = toDeleteDocs.slice(i, i + 400);
+          const delBatch = writeBatch(db);
+          chunk.forEach(ref => delBatch.delete(ref));
+          await delBatch.commit();
+        }
+      }
+
+      // 2. Guardar / actualizar documentos locales
+      for (let i = 0; i < data.length; i += 400) {
+        const chunk = data.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          if (item && item.id != null) {
+            const docId = toSafeDocId(item.id);
+            const sanitized = sanitizeForFirestore({
+              ...item,
+              updatedAt: (item as any).updatedAt || Date.now(),
+            });
+            const docRef = doc(db!, collectionName, docId);
+            batch.set(docRef, sanitized, { merge: true });
+          }
+        });
+        await batch.commit();
+      }
+
+      const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
+      updateSyncStatus(s => {
+        s.status = "connected";
+        s.lastSyncTime = timeStr;
+        s.lastOperation = `Sincronizados ${data.length} docs en '${collectionName}'`;
+        if (s.collections[collectionName]) {
+          s.collections[collectionName].status = "synced";
+          s.collections[collectionName].docsCount = data.length;
+          s.collections[collectionName].lastUpdated = timeStr;
+        }
+      });
+      addSyncLog("success", collectionName, `${data.length} registros sincronizados en Firestore.`);
+    } catch (err: any) {
+      console.warn(`[Firebase] Error en saveEntireCollection '${collectionName}':`, err);
+      const errMsg = err?.message || String(err);
+      updateSyncStatus(s => {
+        s.writeErrors += 1;
+        s.lastErrorMessage = errMsg;
+      });
+      addSyncLog("error", collectionName, `Error al sincronizar: ${errMsg}`);
+    }
+  }, 100);
 }
 
 /**
- * Guarda un documento individual de forma inmediata
+ * Vacia una colección completa en Firestore
  */
-export async function saveDocument<T extends { id: string | number; updatedAt?: number }>(
-  collectionName: string,
-  item: T
-) {
-  if (!item || item.id == null) return;
-  const docId = String(item.id);
-  (item as any).updatedAt = Date.now();
-
-  const localKey = storageKeyMap[collectionName] || collectionName;
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem(localKey);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          const idx = arr.findIndex((x: any) => String(x.id) === docId);
-          if (idx >= 0) arr[idx] = item;
-          else arr.unshift(item);
-          localStorage.setItem(localKey, JSON.stringify(arr));
-        }
-      }
-    } catch {}
-  }
-
+export async function clearCollectionInFirestore(collectionName: string) {
   if (!db || !isFirebaseAvailable) return;
 
   try {
-    const sanitized = sanitizeForFirestore(item);
-    const docRef = doc(db, collectionName, docId);
-    await setDoc(docRef, sanitized, { merge: true });
+    const colRef = collection(db, collectionName);
+    const snap = await getDocs(colRef);
+    if (snap.empty) return;
 
-    if (!knownFirestoreDocIds[collectionName]) {
-      knownFirestoreDocIds[collectionName] = new Set<string>();
+    for (let i = 0; i < snap.docs.length; i += 400) {
+      const chunk = snap.docs.slice(i, i + 400);
+      const batch = writeBatch(db);
+      chunk.forEach(d => {
+        batch.delete(d.ref);
+      });
+      await batch.commit();
     }
-    knownFirestoreDocIds[collectionName].add(docId);
-  } catch (err: any) {
-    console.warn(`[Firebase] Error guardando doc #${docId} en '${collectionName}':`, err);
-  }
-}
 
-/**
- * Elimina un documento individual de forma inmediata
- */
-export async function deleteDocument(
-  collectionName: string,
-  docId: string | number
-) {
-  if (docId == null) return;
-  const idStr = String(docId);
-
-  const localKey = storageKeyMap[collectionName] || collectionName;
-  if (typeof window !== "undefined") {
-    try {
-      const raw = localStorage.getItem(localKey);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          const filtered = arr.filter((x: any) => String(x.id) !== idStr);
-          localStorage.setItem(localKey, JSON.stringify(filtered));
-        }
+    const timeStr = new Date().toLocaleTimeString("es-CL", { timeZone: "America/Santiago" });
+    updateSyncStatus(s => {
+      s.status = "connected";
+      s.lastSyncTime = timeStr;
+      s.lastOperation = `Colección '${collectionName}' vaciada`;
+      if (s.collections[collectionName]) {
+        s.collections[collectionName].docsCount = 0;
+        s.collections[collectionName].lastUpdated = timeStr;
       }
-    } catch {}
-  }
-
-  if (!db || !isFirebaseAvailable) return;
-
-  try {
-    const docRef = doc(db, collectionName, idStr);
-    await deleteDoc(docRef);
-
-    if (knownFirestoreDocIds[collectionName]) {
-      knownFirestoreDocIds[collectionName].delete(idStr);
-    }
+    });
+    addSyncLog("info", collectionName, `Colección vaciada completamente en Firestore.`);
   } catch (err: any) {
-    console.warn(`[Firebase] Error eliminando doc #${idStr} en '${collectionName}':`, err);
+    console.warn(`[Firebase] Error vaciando '${collectionName}':`, err);
   }
 }
 

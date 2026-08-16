@@ -25,7 +25,6 @@ import {
   QrCode,
   Download,
   Instagram,
-  Facebook,
   Phone,
   Mail,
   Sun,
@@ -399,15 +398,6 @@ export function PublicCatalog({
               >
                 <Instagram size={13} className="text-rose-400" />
                 <span className="hidden sm:inline">Instagram</span>
-              </a>
-              <a
-                href="https://facebook.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-blue-300 transition-colors flex items-center gap-1 font-bold"
-              >
-                <Facebook size={13} className="text-blue-400" />
-                <span className="hidden md:inline">Facebook</span>
               </a>
             </div>
           </div>

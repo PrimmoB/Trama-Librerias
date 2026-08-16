@@ -66,8 +66,8 @@ interface AccesosProps {
   onLogAudit?: (accion: string, modulo: string, detalles: string, tipo: "info" | "warning" | "security_alert" | "success") => void;
   tramaInfo?: TramaInfo;
   setTramaInfo?: React.Dispatch<React.SetStateAction<TramaInfo>>;
-  activeTab?: "personal" | "datosTrama" | "respaldos" | "sync";
-  onTabChange?: (tab: "personal" | "datosTrama" | "respaldos" | "sync") => void;
+  activeTab?: "personal" | "datosTrama" | "respaldos";
+  onTabChange?: (tab: "personal" | "datosTrama" | "respaldos") => void;
   onOpenPublicCatalog?: () => void;
 }
 
@@ -98,7 +98,7 @@ export function Accesos({
   onOpenPublicCatalog,
 }: AccesosProps) {
   // Manejo de pestaña activa
-  const [currentTab, setCurrentTab] = useState<"personal" | "datosTrama" | "respaldos" | "sync">(activeTab);
+  const [currentTab, setCurrentTab] = useState<"personal" | "datosTrama" | "respaldos">(activeTab);
 
   useEffect(() => {
     if (activeTab) {
@@ -106,7 +106,7 @@ export function Accesos({
     }
   }, [activeTab]);
 
-  const handleSelectTab = (tab: "personal" | "datosTrama" | "respaldos" | "sync") => {
+  const handleSelectTab = (tab: "personal" | "datosTrama" | "respaldos") => {
     setCurrentTab(tab);
     if (onTabChange) {
       onTabChange(tab);
@@ -438,24 +438,12 @@ export function Accesos({
               : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-200"
           }`}
         >
-          <ShieldCheck size={15} />
-          <span>Respaldos y Seguridad</span>
-        </button>
-
-        <button
-          onClick={() => handleSelectTab("sync")}
-          className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
-            currentTab === "sync"
-              ? "bg-stone-900 text-white shadow-xs"
-              : "bg-white text-gray-700 hover:bg-gray-100 border border-gray-200"
-          }`}
-        >
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          <Activity size={15} className={currentTab === "sync" ? "text-amber-400" : "text-purple-600"} />
-          <span>Diagnóstico Nube & Firestore</span>
+          <ShieldCheck size={15} />
+          <span>Respaldos, Nube y Seguridad</span>
         </button>
       </div>
 
@@ -1217,13 +1205,6 @@ export function Accesos({
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* PESTAÑA 4: DIAGNÓSTICO NUBE & FIRESTORE */}
-      {currentTab === "sync" && (
-        <div className="space-y-5 animate-in fade-in duration-200">
-          <FirebaseSyncPanel />
         </div>
       )}
 
